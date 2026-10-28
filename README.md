@@ -160,6 +160,7 @@ The rules:
 
 - With `-a FILE`, every value in the file is validated. Anything missing is asked interactively.
 - With `-a FILE -y`, nothing is asked. Missing optional keys take their defaults. A missing required key, or an invalid value, stops the run with exit code 64 and names the key.
+- The optional overrides (`MIN_CPU`, `MIN_RAM_GB`, `MIN_DISK_GB`, `DISK_PATH`, `SSH_PORT`, `PERF_MB`, `BANDWIDTH_WARN_MBPS`, `LATENCY_WARN_MS`, `LATENCY_FAIL_MS`) are never asked for, so an invalid value stops the run with exit code 64 even without `-y`.
 - `--role` overrides `ROLE=` in the file.
 - If the file contains a password or secret key and is readable by other users, the script warns and suggests `chmod 600`.
 
@@ -348,7 +349,7 @@ A server can't test its own inbound path from outside. See [Testing inbound port
 | File storage, S3 | DNS, TCP, certificate, and a signed PUT, GET and DELETE of a test object |
 | Cluster | For each peer: DNS, gossip on 8074/tcp and 8074/udp |
 | Email | DNS, TCP, a `220` SMTP greeting, the STARTTLS or TLS certificate |
-| Directory and SSO | LDAP DNS, TCP, LDAPS or StartTLS certificate, service-account bind; IdP metadata URL reachable |
+| Directory and SSO | LDAP DNS, TCP, LDAPS or StartTLS certificate (a warning when `LDAP_SECURITY=none`, since passwords would be sent unencrypted), service-account bind; IdP metadata URL reachable |
 | Search and cache | Search DNS, certificate, cluster responding (version 8 or 9, or OpenSearch); Redis answers `PING` |
 | Calls | Integrated: public IP via STUN and match against the ICE host override. RTCD: DNS, API reachable and `/version` answering. Offloader API reachable. |
 | Push notifications | Push server reachable |

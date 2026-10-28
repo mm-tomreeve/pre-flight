@@ -375,6 +375,7 @@ validate() {
     port) [[ $v =~ ^[0-9]+$ ]] && (( v >= 1 && v <= 65535 )) && return 0
           VALIDATE_MSG="Enter a port number between 1 and 65535." ;;
     int)  [[ $v =~ ^[0-9]+$ ]] && return 0; VALIDATE_MSG="Enter a whole number." ;;
+    num)  [[ $v =~ ^[0-9]+(\.[0-9]+)?$ ]] && return 0; VALIDATE_MSG="Enter a number." ;;
     host) [[ $v =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] && return 0
           VALIDATE_MSG="Enter a hostname or IPv4 address (no scheme or port)." ;;
     hostport) [[ $v =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$ ]] && return 0
@@ -397,6 +398,18 @@ validate() {
     *) return 0 ;;
   esac
   return 1
+}
+
+# Optional overrides that are never asked for. They reach (( )) and awk, so reject anything that isn't the expected shape.
+TUNING_KEYS="MIN_CPU:int MIN_RAM_GB:int MIN_DISK_GB:int DISK_PATH:path SSH_PORT:port PERF_MB:int BANDWIDTH_WARN_MBPS:int LATENCY_WARN_MS:num LATENCY_FAIL_MS:num"
+check_tuning() {
+  local kr k rule
+  for kr in $TUNING_KEYS; do
+    k=${kr%%:*} rule=${kr#*:}
+    [[ -n ${ANS[$k]:-} ]] || continue
+    validate "$rule" "${ANS[$k]}" || die "answer file: $k='${ANS[$k]}': $VALIDATE_MSG"
+    ANS_ORDER+=("$k")
+  done
 }
 
 group() { PENDING_GROUP=$1; }
@@ -786,7 +799,7 @@ detect_env() {
   TMPD=$(mktemp -d "${TMPDIR:-/tmp}/mm-preflight.XXXXXX") || die "cannot create a temp directory"
   IS_ROOT=0; [[ $EUID -eq 0 ]] && IS_ROOT=1
   HAS_PY=0
-  have python3 && python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 6) else 1)' 2>/dev/null && HAS_PY=1
+  have python3 && python3 -I -c 'import sys; sys.exit(0 if sys.version_info >= (3, 6) else 1)' 2>/dev/null && HAS_PY=1
   FW_STATE=inactive FW_ZONES=""
   if have firewall-cmd && systemctl is-active --quiet firewalld 2>/dev/null; then
     if firewall-cmd --state >/dev/null 2>&1; then
@@ -830,6 +843,7 @@ find_pg_bin() {
 
 # ════════════════════════════════════════════════════════════════════════════
 #  Embedded python helpers (stdlib only)
+#  Always run with python3 -I so modules in the current directory are never imported as root.
 # ════════════════════════════════════════════════════════════════════════════
 read -r -d '' PY_UDP <<'PY' || true
 import socket, sys, os, errno
@@ -1315,7 +1329,7 @@ chk_tools_required() {
   elif ((!HAS_PY)); then
     warn "python3 missing. UDP, STUN, S3 and PostgreSQL TLS probes will be skipped" "dnf install -y python3"
   else
-    pass "curl, openssl, ss, python3 $(python3 -c 'import platform; print(platform.python_version())')"
+    pass "curl, openssl, ss, python3 $(python3 -I -c 'import platform; print(platform.python_version())')"
   fi
 }
 
@@ -1388,7 +1402,7 @@ chk_tcp() {
 chk_udp() {
   local h=$1 p=$2 svc=${3:-the service} doc=${4:-$DOC_NETWORK} r
   needs_py || return
-  r=$(timeout $((OPT_TIMEOUT + 3)) python3 -c "$PY_UDP" "$h" "$p" "$OPT_TIMEOUT" 2>/dev/null)
+  r=$(timeout $((OPT_TIMEOUT + 3)) python3 -I -c "$PY_UDP" "$h" "$p" "$OPT_TIMEOUT" 2>/dev/null)
   case $r in
     ECHO|REPLY) pass "round trip confirmed" ;;
     REFUSED)    warn "$h replied 'port unreachable', so the path is open but nothing is listening on $p/udp yet" \
@@ -1494,7 +1508,7 @@ chk_stun() {
   local hp=$1 ice=${2:-} r pub
   needs_py || return
   hp_split "$hp" 3478
-  r=$(timeout $((OPT_TIMEOUT + 3)) python3 -c "$PY_STUN" "$HP_HOST" "$HP_PORT" "$OPT_TIMEOUT" 2>/dev/null)
+  r=$(timeout $((OPT_TIMEOUT + 3)) python3 -I -c "$PY_STUN" "$HP_HOST" "$HP_PORT" "$OPT_TIMEOUT" 2>/dev/null)
   case $r in
     OK*) pub=${r#OK }
          if [[ -n $ice ]]; then
@@ -1535,7 +1549,7 @@ chk_site_local() {
 chk_pg_ssl() {
   local h=$1 p=$2 mode=$3 r
   needs_py || return
-  r=$(timeout $((OPT_TIMEOUT + 2)) python3 -c "$PY_PGSSL" "$h" "$p" "$OPT_TIMEOUT" 2>/dev/null)
+  r=$(timeout $((OPT_TIMEOUT + 2)) python3 -I -c "$PY_PGSSL" "$h" "$p" "$OPT_TIMEOUT" 2>/dev/null)
   case $r in
     SSL)   pass "server offers TLS (sslmode=$mode)" ;;
     NOSSL) if [[ $mode == require || $mode == verify-* ]]; then
@@ -1587,16 +1601,16 @@ chk_pg_login() {
 
 # ── File storage ────────────────────────────────────────────────────────────
 chk_store_write() {
-  local dir=$1 user=mattermost t p=$1 how
+  local dir=$1 user=mattermost t p=$1 how rc
   while [[ ! -e $p && $p != / ]]; do p=$(dirname "$p"); done
   t="$p/.mm-preflight-$$-$RANDOM"
   local script='printf "mm-preflight\n" > "$1" && sync "$1" 2>/dev/null; grep -q mm-preflight "$1" && rm -f "$1"'
   if id "$user" >/dev/null 2>&1 && ((IS_ROOT)); then
-    runuser -u "$user" -- bash -c "$script" _ "$t" 2>/dev/null; how="as $user"
+    runuser -u "$user" -- bash -c "$script" _ "$t" 2>/dev/null; rc=$?; how="as $user"
   else
-    bash -c "$script" _ "$t" 2>/dev/null; how="as $(id -un)"
+    bash -c "$script" _ "$t" 2>/dev/null; rc=$?; how="as $(id -un)"
   fi
-  if [[ $? -eq 0 && ! -e $t ]]; then
+  if ((rc == 0)) && [[ ! -e $t ]]; then
     local extra=""; [[ $p != "$dir" ]] && extra=" ($dir will be created under $p)"
     id "$user" >/dev/null 2>&1 || extra+=" · mattermost user not created yet: keep its UID/GID identical on every node"
     pass "write · read · delete OK $how$extra"
@@ -1637,7 +1651,7 @@ chk_s3() {
   r=$(MMPF_S3_ENDPOINT=$(get S3_ENDPOINT) MMPF_S3_BUCKET=$(get S3_BUCKET) MMPF_S3_REGION=$(get S3_REGION us-east-1) \
       MMPF_S3_AK=$(get S3_ACCESS_KEY) MMPF_S3_SK=$(get S3_SECRET_KEY) MMPF_S3_PATH=$(get S3_PATH_STYLE no) \
       MMPF_S3_KEY="mm-preflight/${HOST_SHORT}-${STAMP}.txt" MMPF_TIMEOUT=$((OPT_TIMEOUT * 2)) \
-      timeout $((OPT_TIMEOUT * 8)) python3 -c "$PY_S3" 2>&1 | tail -1)
+      timeout $((OPT_TIMEOUT * 8)) python3 -I -c "$PY_S3" 2>&1 | tail -1)
   if [[ $r == OK ]]; then pass "PUT · GET · DELETE succeeded in $(get S3_BUCKET)"; return; fi
   local step code ecode msg fix
   read -r _ step code ecode msg <<< "$r"
@@ -1685,6 +1699,12 @@ chk_ldap_bind() {
     32) fail "base DN not found" "Check LDAP_BASE_DN" "$DOC_NETWORK" ;;
     *)  fail "ldapsearch exit $rc: $(oneline "$out" 80)" "Check host, port, security mode and CA trust" "$DOC_NETWORK" ;;
   esac
+}
+
+chk_ldap_cleartext() {
+  local what="user passwords at login"; [[ -n $(get LDAP_BIND_DN) ]] && what="the bind password (including this test's) and $what"
+  warn "LDAP_SECURITY=none, so $what cross the network unencrypted" \
+       "Use LDAPS (port 636) or StartTLS (port 389) in Mattermost's AD/LDAP settings, then set LDAP_SECURITY to match" "$DOC_NETWORK"
 }
 
 chk_redis() {
@@ -2036,7 +2056,7 @@ chk_latency() {  # host port
   local h=$1 p=$2 r mn avg mx jit lost tot warn_ms fail_ms
   needs_py || return
   warn_ms=$(get LATENCY_WARN_MS 5) fail_ms=$(get LATENCY_FAIL_MS 30)
-  r=$(timeout $(( OPT_TIMEOUT * 4 + 10 )) python3 -c "$PY_RTT" "$h" "$p" 10 "$(( OPT_TIMEOUT < 2 ? OPT_TIMEOUT : 2 ))" 2>/dev/null)
+  r=$(timeout $(( OPT_TIMEOUT * 4 + 10 )) python3 -I -c "$PY_RTT" "$h" "$p" 10 "$(( OPT_TIMEOUT < 2 ? OPT_TIMEOUT : 2 ))" 2>/dev/null)
   case $r in
     OK*) read -r _ mn avg mx jit lost tot _ <<< "$r"
          local d="avg ${avg} ms · min ${mn} · max ${mx} · jitter ${jit} ms"
@@ -2056,7 +2076,7 @@ chk_bandwidth() {  # host port
   local h=$1 p=$2 r up down min mb
   needs_py || return
   min=$(get BANDWIDTH_WARN_MBPS 500) mb=$(get PERF_MB 64)
-  r=$(timeout 300 python3 -c "$PY_PERF" "$h" "$p" "$mb" "$OPT_TIMEOUT" 2>/dev/null)
+  r=$(timeout 300 python3 -I -c "$PY_PERF" "$h" "$p" "$mb" "$OPT_TIMEOUT" 2>/dev/null)
   case $r in
     OK*) read -r _ up down <<< "$r"
          local d; d="up $(fmt_n "$up") Mbit/s · down $(fmt_n "$down") Mbit/s (${mb} MB each way)"
@@ -2206,6 +2226,7 @@ plan_app() {
     case $ls in
       ldaps)    add "Directory & SSO" "LDAPS certificate"    chk_tls "$lh" "$lp" ""   "$lh" fail "$DOC_NETWORK" ;;
       starttls) add "Directory & SSO" "StartTLS certificate" chk_tls "$lh" "$lp" ldap "$lh" fail "$DOC_NETWORK" ;;
+      none)     add "Directory & SSO" "Connection security"  chk_ldap_cleartext ;;
     esac
     [[ -n $(get LDAP_BIND_DN) ]] && add "Directory & SSO" "Bind as service account" chk_ldap_bind
   fi
@@ -2512,7 +2533,7 @@ run_listen() {
   fi
   printf '\n'
   trap 'true' INT
-  python3 -c "$PY_LISTEN" "$OPT_LISTEN" "$OPT_DURATION" "$GREEN$G_PASS$RESET" "$RED$G_FAIL$RESET"
+  python3 -I -c "$PY_LISTEN" "$OPT_LISTEN" "$OPT_DURATION" "$GREEN$G_PASS$RESET" "$RED$G_FAIL$RESET"
   local rc=$?
   trap on_int INT
   printf '\n'; exit $(( rc == 0 ? 0 : 2 ))
@@ -2580,6 +2601,7 @@ main() {
   if ((INTERACTIVE)); then note "Press Enter to accept the value in [brackets]. Leave optional items blank to skip them."; fi
   "interview_$ROLE"
   interview_perf
+  check_tuning
   local n_asked=${#ANS_ORDER[@]}
   ((INTERACTIVE)) || printf '  %s%s%s  %d answers loaded%s\n' "$GREEN" "$G_PASS" "$RESET" "$n_asked" \
                             "$([[ -n $OPT_ANSWERS ]] && echo " from $OPT_ANSWERS")"
