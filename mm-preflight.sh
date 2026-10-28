@@ -208,7 +208,7 @@ banner() {
     printf '\n  %s  Mattermost Pre-Flight  v%s\n  %s\n  Readiness checks for Mattermost on RHEL 9 / 10\n' "$G_LOGO" "$MMPF_VERSION" "$(rep "$G_RULE" $((W - 2)))"
     return
   fi
-  local title=" ${G_LOGO}  Mattermost Pre-Flight" ver="v${MMPF_VERSION}  " inner=$((W - 2)) gap
+  local title=" ${G_LOGO}   Mattermost Pre-Flight" ver="v${MMPF_VERSION}  " inner=$((W - 2)) gap
   gap=$(( inner - ${#title} - ${#ver} )); (( gap < 1 )) && gap=1
   printf '\n'
   printf '  %s%*s%s\n' "$BG_BLUE" "$inner" '' "$RESET"
@@ -1576,7 +1576,7 @@ chk_pg_login() {
   min=$(get PG_MIN_VERSION 15)
   (( ${vnum:-0} < min * 10000 )) && issues+=("PostgreSQL $ver is older than $min")
   [[ $enc != UTF8 ]] && issues+=("encoding is $enc, not UTF8")
-  [[ $cre != t ]] && issues+=("$u cannot CREATE in schema public")
+  [[ $cre != t && $cre != true ]] && issues+=("$u cannot CREATE in schema public")
   if ((${#issues[@]})); then
     fail "$(IFS=';'; echo "${issues[*]}")" \
       "PostgreSQL $min+, UTF8 database, and on PG15+: GRANT ALL ON SCHEMA public TO $u (or make $u the database owner)" "$DOC_DB"

@@ -6,6 +6,8 @@ It reads settings and opens short-lived test connections. It does not install pa
 
 Each run ends with a verdict, a list of what to fix first, and a plain-text report you can attach to a change ticket.
 
+![Starting a run for the app role from an answer file](docs/images/start.png)
+
 ## Contents
 
 - [Quick start](#quick-start)
@@ -103,7 +105,13 @@ A run has three steps.
 
 Every WARN and FAIL line includes a one-line fix and a link to the relevant page on docs.mattermost.com.
 
+![Database checks, with a fix and a documentation link under each WARN and FAIL](docs/images/check-results.png)
+
 At the end you get a summary card with the verdict, the capacity estimate and counts, a numbered "Fix these first" list, and the path to the report. An interactive run then offers to save your answers, and offers to start test listeners for the ports this server will receive traffic on.
+
+![Summary card with the verdict, counts, capacity estimate and the "Fix these first" list](docs/images/verdict.png)
+
+<a href="docs/images/full-run.png"><img src="docs/images/full-run.png" alt="A complete run for the app role, from the system checks through to network performance" width="240"></a>
 
 ## Answer files
 
