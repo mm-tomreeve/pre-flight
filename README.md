@@ -105,11 +105,15 @@ A run has three steps.
 
 Every WARN and FAIL line includes a one-line fix and a link to the relevant page on docs.mattermost.com.
 
-![Database checks, with a fix and a documentation link under each WARN and FAIL](docs/images/check-results.png)
+![Database, file storage, Calls, internet and site URL checks, with a fix and a documentation link under each WARN and FAIL](docs/images/check-results.png)
 
 At the end you get a summary card with the verdict, the capacity estimate and counts, a numbered "Fix these first" list, and the path to the report. An interactive run then offers to save your answers, and offers to start test listeners for the ports this server will receive traffic on.
 
-![Summary card with the verdict, counts, capacity estimate and the "Fix these first" list](docs/images/verdict.png)
+![NOT READY summary card with the counts, capacity estimate and the "Fix these first" list](docs/images/verdict-not-ready.png)
+
+Once everything is fixed, the run reports READY:
+
+![READY summary card: 30 passed, no warnings or failures, and meets the reference tier](docs/images/verdict-ready.png)
 
 <a href="docs/images/full-run.png"><img src="docs/images/full-run.png" alt="A complete run for the app role, from the system checks through to network performance" width="240"></a>
 
